@@ -42,13 +42,13 @@
     </div>
 
     <script>
-        // Используем бесплатный готовый WebSocket-сервер в интернете
-        // Ключ 'demo' бесплатный и открытый для всех
-        const ws = new WebSocket('wss://://piesocket.com');
-        let localStream;
-        let peerConnection;
-
+        // 1. Сначала железно объявляем ВСЕ глобальные переменные и настройки
+        let localStream = null;
+        let peerConnection = null;
         const config = { iceServers: [{ urls: 'stun:://google.com' }] };
+
+        // 2. Подключаемся к интернет-серверу (убрали нижние подчеркивания из названия комнаты)
+        const ws = new WebSocket('wss://://piesocket.com');
 
         ws.onmessage = async (event) => {
             const data = JSON.parse(event.data);
@@ -67,6 +67,7 @@
             }
         };
 
+        // Функция захвата экрана
         async function startScreenShare() {
             try {
                 const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
@@ -78,12 +79,13 @@
                 ]);
 
                 document.getElementById('localVideo').srcObject = localStream;
-                console.log("Экран и микрофон готовы!");
+                console.log("Экран и микрофон успешно готовы к отправке!");
             } catch (e) {
                 console.error("Ошибка захвата медиа:", e);
             }
         }
 
+        // Настройка моста WebRTC
         function createPeerConnection() {
             peerConnection = new RTCPeerConnection(config);
 
@@ -92,7 +94,7 @@
             }
 
             peerConnection.ontrack = (event) => {
-                document.getElementById('remoteVideo').srcObject = event.streams;
+                document.getElementById('remoteVideo').srcObject = event.streams[0];
             };
 
             peerConnection.onicecandidate = (event) => {
@@ -102,6 +104,7 @@
             };
         }
 
+        // Кнопка соединения
         async function initiateCall() {
             createPeerConnection();
             const offer = await peerConnection.createOffer();
