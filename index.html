@@ -15,8 +15,10 @@
         #shareScreenBtn:hover { background: #ffee33; box-shadow: 0 0 15px #ffcc00; }
         #startCallBtn { background: #00ccff; color: black; }
         #startCallBtn:hover { background: #00ffcc; box-shadow: 0 0 15px #00ffcc; }
-        h1 { font-size: 36px; color: #00ccff; text-shadow: 0 0 15px rgba(0, 204, 255, 0.4); margin-bottom: 5px; }
-        h3 { margin-top: 5px; margin-bottom: 10px; color: #a0a0d0; }
+        .key-area { background: #171738; padding: 15px; border-radius: 10px; display: flex; flex-direction: column; gap: 10px; }
+        textarea { width: 95%; height: 80px; background: #090914; color: #00ffcc; border: 1px solid #334; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 12px; resize: none; }
+        h1 { font-size: 36px; color: #00ccff; text-shadow: 0 0 15px rgba(0, 204, 255, 0.4); }
+        h3 { margin: 5px 0 10px 0; color: #a0a0d0; }
     </style>
 </head>
 <body>
@@ -25,8 +27,8 @@
         <h1>Звонки</h1>
         
         <div class="control-panel">
-            <button id="shareScreenBtn" onclick="startScreenShare()">Трансляция экрана и звука 🎥</button>
-            <button id="startCallBtn" onclick="initiateCall()">Соединиться ⚡</button>
+            <button id="shareScreenBtn" onclick="startScreenShare()">1. Включить экран и микрофон 🎥</button>
+            <button id="startCallBtn" onclick="createOffer()">2. Создать код приглашения ⚡</button>
         </div>
 
         <div class="video-grid">
@@ -39,35 +41,23 @@
                 <video id="remoteVideo" autoplay playsinline></video>
             </div>
         </div>
+
+        <!-- ОКОШКО ДЛЯ ОБМЕНА КЛЮЧАМИ СВЯЗИ -->
+        <div class="key-area">
+            <h3 id="statusText">Поле для обмена кодами связи:</h3>
+            <textarea id="keyExchangeArea" placeholder="Здесь появится ваш код, или сюда нужно вставить код от друга..."></textarea>
+            <button id="actionBtn" onclick="applyReceivedKey()" style="background: #00ffcc; color: black;">3. Принять код друга</button>
+        </div>
     </div>
 
     <script>
-        // 1. Сначала железно объявляем ВСЕ глобальные переменные и настройки
         let localStream = null;
         let peerConnection = null;
-        const config = { iceServers: [{ urls: 'stun:://google.com' }] };
+        
+        // Чистый STUN-сервер Google без лишних слешей
+        const config = { iceServers: [{ urls: "stun:://google.com" }] };
 
-        // 2. Подключаемся к интернет-серверу (убрали нижние подчеркивания из названия комнаты)
-        const ws = new WebSocket('wss://://piesocket.com');
-
-        ws.onmessage = async (event) => {
-            const data = JSON.parse(event.data);
-
-            if (data.sdp) {
-                if (!peerConnection) createPeerConnection();
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
-                if (data.sdp.type === 'offer') {
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    ws.send(JSON.stringify({ sdp: peerConnection.localDescription }));
-                }
-            } else if (data.candidate) {
-                if (!peerConnection) createPeerConnection();
-                await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-            }
-        };
-
-        // Функция захвата экрана
+        // Захват экрана и звука
         async function startScreenShare() {
             try {
                 const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
@@ -79,13 +69,14 @@
                 ]);
 
                 document.getElementById('localVideo').srcObject = localStream;
-                console.log("Экран и микрофон успешно готовы к отправке!");
+                console.log("Экран и микрофон успешно готовы!");
+                document.getElementById('statusText').innerText = "Шаг 1 готов! Нажмите кнопку 2.";
             } catch (e) {
                 console.error("Ошибка захвата медиа:", e);
             }
         }
 
-        // Настройка моста WebRTC
+        // Базовая настройка WebRTC
         function createPeerConnection() {
             peerConnection = new RTCPeerConnection(config);
 
@@ -95,21 +86,44 @@
 
             peerConnection.ontrack = (event) => {
                 document.getElementById('remoteVideo').srcObject = event.streams[0];
+                document.getElementById('statusText').innerText = "🎉 Соединение успешно установлено!";
             };
 
+            // Собираем сетевые маршруты в один текстовый ключ
             peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    ws.send(JSON.stringify({ candidate: event.candidate }));
+                if (!event.candidate) {
+                    // Когда всё собралось, выводим финальный ключ в текстовое поле
+                    document.getElementById('keyExchangeArea').value = btoa(JSON.stringify(peerConnection.localDescription));
                 }
             };
         }
 
-        // Кнопка соединения
-        async function initiateCall() {
+        // Инициатор звонка создает Предложение (Offer)
+        async function createOffer() {
             createPeerConnection();
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
-            ws.send(JSON.stringify({ sdp: peerConnection.localDescription }));
+            document.getElementById('statusText').innerText = "⏳ Генерирую код... Скопируйте его и отправьте другу!";
+        }
+
+        // Применение кода, который вставили в текстовое поле
+        async function applyReceivedKey() {
+            const text = document.getElementById('keyExchangeArea').value.trim();
+            if (!text) return alert("Поле пустое! Вставьте код.");
+
+            const data = JSON.parse(atob(text));
+
+            if (!peerConnection) {
+                // Если мы принимаем звонок (Ответ на Offer)
+                createPeerConnection();
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                document.getElementById('statusText').innerText = "✅ Ответ создан! Скопируйте текст из поля ниже и отправьте первому человеку.";
+            } else {
+                // Если мы начали звонок и получили Ответ (Answer) от друга
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data));
+            }
         }
     </script>
 </body>
