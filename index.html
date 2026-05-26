@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Звонки</title>
+    <style>
+        body { background: #0c0c1e; color: white; font-family: 'Segoe UI', sans-serif; text-align: center; margin: 0; padding: 20px; }
+        .container { max-width: 950px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+        .control-panel { display: flex; gap: 15px; justify-content: center; margin-bottom: 10px; }
+        .video-grid { display: flex; gap: 25px; justify-content: center; flex-wrap: wrap; }
+        .video-box { background: #141432; padding: 10px; border-radius: 12px; box-shadow: 0 0 20px rgba(0, 204, 255, 0.1); }
+        video { width: 440px; height: 330px; background: #000; border-radius: 8px; border: 2px solid #00ccff; object-fit: cover; }
+        button { padding: 14px 24px; font-size: 16px; font-weight: bold; border-radius: 8px; border: none; cursor: pointer; transition: 0.2s; }
+        #shareScreenBtn { background: #ffcc00; color: black; }
+        #shareScreenBtn:hover { background: #ffee33; box-shadow: 0 0 15px #ffcc00; }
+        #startCallBtn { background: #00ccff; color: black; }
+        #startCallBtn:hover { background: #00ffcc; box-shadow: 0 0 15px #00ffcc; }
+        h1 { font-size: 36px; color: #00ccff; text-shadow: 0 0 15px rgba(0, 204, 255, 0.4); margin-bottom: 5px; }
+        h3 { margin-top: 5px; margin-bottom: 10px; color: #a0a0d0; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Звонки</h1>
+        
+        <div class="control-panel">
+            <button id="shareScreenBtn" onclick="startScreenShare()">Трансляция экрана и звука 🎥</button>
+            <button id="startCallBtn" onclick="initiateCall()">Соединиться ⚡</button>
+        </div>
+
+        <div class="video-grid">
+            <div class="video-box">
+                <h3>Вы</h3>
+                <video id="localVideo" autoplay playsinline muted></video>
+            </div>
+            <div class="video-box">
+                <h3>Собеседник</h3>
+                <video id="remoteVideo" autoplay playsinline></video>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Используем бесплатный готовый WebSocket-сервер в интернете
+        // Ключ 'demo' бесплатный и открытый для всех
+        const ws = new WebSocket('wss://://piesocket.com');
+        let localStream;
+        let peerConnection;
+
+        const config = { iceServers: [{ urls: 'stun:://google.com' }] };
+
+        ws.onmessage = async (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.sdp) {
+                if (!peerConnection) createPeerConnection();
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                if (data.sdp.type === 'offer') {
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+                    ws.send(JSON.stringify({ sdp: peerConnection.localDescription }));
+                }
+            } else if (data.candidate) {
+                if (!peerConnection) createPeerConnection();
+                await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+            }
+        };
+
+        async function startScreenShare() {
+            try {
+                const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+                const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                localStream = new MediaStream([
+                    ...screenStream.getVideoTracks(),
+                    ...audioStream.getAudioTracks()
+                ]);
+
+                document.getElementById('localVideo').srcObject = localStream;
+                console.log("Экран и микрофон готовы!");
+            } catch (e) {
+                console.error("Ошибка захвата медиа:", e);
+            }
+        }
+
+        function createPeerConnection() {
+            peerConnection = new RTCPeerConnection(config);
+
+            if (localStream) {
+                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            }
+
+            peerConnection.ontrack = (event) => {
+                document.getElementById('remoteVideo').srcObject = event.streams;
+            };
+
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    ws.send(JSON.stringify({ candidate: event.candidate }));
+                }
+            };
+        }
+
+        async function initiateCall() {
+            createPeerConnection();
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            ws.send(JSON.stringify({ sdp: peerConnection.localDescription }));
+        }
+    </script>
+</body>
+</html>
